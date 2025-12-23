@@ -4,126 +4,117 @@ from typing import Tuple
 from scipy.stats import gaussian_kde, multivariate_normal
 import plotly.graph_objects as go
 
-def plot_3d_kde(
+def plot_3d_kde_surface(
     returns_df: pd.DataFrame,
-    assets: Tuple[str, str, str],
+    assets: Tuple[str, str],
+    *,
+    bw_method: str | float = "scott",
+    grid_n: int = 120,
+    pad: float = 0.05,
 ) -> None:
-    if len(assets) != 3:
-        raise ValueError("Must provide exactly 3 assets to plot 3D KDE.")
     """
-    Plot a 3D KDE of returns for exactly three assets.
-
-    Parameters
-    ----------
-    returns : pd.DataFrame
-        DataFrame of asset returns (columns = asset names).
-    assets : tuple[str, str, str]
-        Exactly three asset column names.
+    Plot a true 3D bell surface (x, y, density) using a Gaussian KDE
+    for exactly two assets.
     """
+    if len(assets) != 2:
+        raise ValueError("Must provide exactly 2 assets to plot a 3D KDE surface.")
 
-    X = returns_df[assets].dropna().to_numpy().T      # shape: (3, n). scipy expects (d, n)
+    Y = returns_df[list(assets)].dropna().to_numpy()   # (n, 2)
+    if Y.shape[0] < 5:
+        raise ValueError("Not enough observations to fit KDE.")
 
-    kde = gaussian_kde(X, bw_method="scott")
+    # KDE expects (d, n)
+    X = Y.T
+    kde = gaussian_kde(X, bw_method=bw_method)
 
-    # Build a 3D grid to evaluate density on
-    x1 = X[0]; x2 = X[1]; x3 = X[2]
-    pad = 0.25  # widen plotting range a bit
-    n = 60      # grid resolution (60^3=216k points; increase carefully)
+    # grid using full data range (no quantiles)
+    x_min, y_min = Y.min(axis=0)
+    x_max, y_max = Y.max(axis=0)
 
-    g1 = np.linspace(x1.min()*(1+pad), x1.max()*(1+pad), n)
-    g2 = np.linspace(x2.min()*(1+pad), x2.max()*(1+pad), n)
-    g3 = np.linspace(x3.min()*(1+pad), x3.max()*(1+pad), n)
+    # small padding so the surface doesn't clip
+    dx = pad * (x_max - x_min)
+    dy = pad * (y_max - y_min)
 
-    G1, G2, G3 = np.meshgrid(g1, g2, g3, indexing="ij")
-    grid_points = np.vstack([G1.ravel(), G2.ravel(), G3.ravel()])  # (3, n^3)
-    D = kde(grid_points).reshape(n, n, n)  # density volume
+    x = np.linspace(x_min - dx, x_max + dx, grid_n)
+    y = np.linspace(y_min - dy, y_max + dy, grid_n)
+    Xg, Yg = np.meshgrid(x, y, indexing="xy")
 
-    # Choose a density threshold to show an isosurface
-    # e.g. show top ~5% densest region
-    thr = np.quantile(D, 0.95)
+    grid_points = np.vstack([Xg.ravel(), Yg.ravel()])
+    Z = kde(grid_points).reshape(grid_n, grid_n)
 
-    fig = go.Figure(
-        data=go.Isosurface(
-            x=G1.ravel(),
-            y=G2.ravel(),
-            z=G3.ravel(),
-            value=D.ravel(),
-            isomin=thr,
-            isomax=D.max(),
-            surface_count=2,   # number of nested surfaces
-            caps=dict(x_show=False, y_show=False, z_show=False),
-        )
-    )
-
+    fig = go.Figure(data=go.Surface(x=Xg, y=Yg, z=Z))
     fig.update_layout(
+        title="3D Bell Curve (2-Asset Gaussian KDE)",
         scene=dict(
             xaxis_title=assets[0],
             yaxis_title=assets[1],
-            zaxis_title=assets[2],
+            zaxis_title="Density",
         ),
-        title="3D KDE Isosurface of Multivariate Returns (Kernel Type: Gaussian)",
     )
-
     fig.show()
 
-def plot_multivariate_gaussian(
+
+def plot_3d_gaussian_surface(
     returns_df: pd.DataFrame,
-    assets: Tuple[str, str, str],
+    assets: Tuple[str, str],
+    *,
+    grid_n: int = 120,
+    pad: float = 0.05,
 ) -> None:
-    if len(assets) != 3:
-        raise ValueError("Must provide exactly 3 assets to plot 3D KDE.")
-    
-    Y = returns_df[assets].dropna().to_numpy()       # (n, 3)
+    """
+    Plot a true 3D bell surface (x, y, density) for a fitted
+    2D multivariate normal.
+    """
+    if len(assets) != 2:
+        raise ValueError("Must provide exactly 2 assets to plot a 3D Gaussian surface.")
+
+    Y = returns_df[list(assets)].dropna().to_numpy()   # (n, 2)
+    if Y.shape[0] < 3:
+        raise ValueError("Not enough observations to fit Gaussian.")
 
     mu = Y.mean(axis=0)
     Sigma = np.cov(Y, rowvar=False)
-
     rv = multivariate_normal(mean=mu, cov=Sigma)
 
-    # grid (use percentile range to avoid extreme outliers blowing up the view)
-    n = 60
-    lo = np.quantile(Y, 0.01, axis=0)
-    hi = np.quantile(Y, 0.99, axis=0)
+    # grid using full data range (no quantiles)
+    x_min, y_min = Y.min(axis=0)
+    x_max, y_max = Y.max(axis=0)
 
-    g1 = np.linspace(lo[0], hi[0], n)
-    g2 = np.linspace(lo[1], hi[1], n)
-    g3 = np.linspace(lo[2], hi[2], n)
+    dx = pad * (x_max - x_min)
+    dy = pad * (y_max - y_min)
 
-    G1, G2, G3 = np.meshgrid(g1, g2, g3, indexing="ij")
-    pos = np.stack([G1, G2, G3], axis=-1)  # (n,n,n,3)
-    D = rv.pdf(pos)
+    x = np.linspace(x_min - dx, x_max + dx, grid_n)
+    y = np.linspace(y_min - dy, y_max + dy, grid_n)
+    Xg, Yg = np.meshgrid(x, y, indexing="xy")
 
-    thr = np.quantile(D, 0.95)
+    pos = np.dstack((Xg, Yg))
+    Z = rv.pdf(pos)
 
-    fig = go.Figure(
-        data=go.Isosurface(
-            x=G1.ravel(), y=G2.ravel(), z=G3.ravel(),
-            value=D.ravel(),
-            isomin=thr, isomax=D.max(),
-            surface_count=2,
-            caps=dict(x_show=False, y_show=False, z_show=False),
-        )
-    )
-
+    fig = go.Figure(data=go.Surface(x=Xg, y=Yg, z=Z))
     fig.update_layout(
-        scene=dict(xaxis_title=assets[0], yaxis_title=assets[1], zaxis_title=assets[2]),
-        title="3D Multivariate Normal Isosurface",
+        title="3D Bell Curve (2-Asset Multivariate Gaussian)",
+        scene=dict(
+            xaxis_title=assets[0],
+            yaxis_title=assets[1],
+            zaxis_title="Density",
+        ),
     )
     fig.show()
 
+
 def plot_multivariate_returns(
     returns_df: pd.DataFrame,
-    assets: Tuple[str, str, str],
+    assets: Tuple[str, str],
     type: str
 ) -> None:
-    if len(assets) != 3:
-        raise ValueError("Must provide exactly 3 assets to plot 3D KDE.")
+    if len(assets) != 2:
+        raise ValueError("Must provide exactly 2 assets to plot 3D KDE.")
     
     if type == "KDE":
-        print("Plotting 3D Guassian KDE isosurface of multivariate returns...")
-        plot_3d_kde(returns_df, assets)
+        print("Plotting 3D Guassian KDE of multivariate returns...")
+        plot_3d_kde_surface(returns_df, assets)
     
     elif type == "Gaussian":
-        print("Plotting Multivariate Normal (Gaussian) isosurface of multivariate returns...")
-        plot_multivariate_gaussian(returns_df, assets)
+        print("Plotting Multivariate Normal (Gaussian) of multivariate returns...")
+        plot_3d_gaussian_surface(returns_df, assets)
         
