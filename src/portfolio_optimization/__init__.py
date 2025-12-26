@@ -6,5 +6,8 @@ from .db_env_util import (
 )
 
 from .visualization.distributions import plot_multivariate_returns
+from .statistics.moments import coskewness, cokurtosis
 
-__all__ += [temp_env, get_databento_api_key, plot_multivariate_returns]
+__all__ += [temp_env, get_databento_api_key, 
+            plot_multivariate_returns,
+            coskewness, cokurtosis]

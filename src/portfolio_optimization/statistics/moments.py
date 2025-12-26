@@ -1,16 +1,24 @@
 import numpy as np
 import yfinance as yf
 
-def coskewness(X):
+def coskewness(X): # X is a numpy array
+    """
+    Vectorized implementation for coskewness calculation...
+
+    Basic mental model:
+        for i in assets:
+            for j in assets:
+                for k in assets:
+                    M3[i,j,k] = mean(x[:,i] * x[:,j] * x[:,k])
+    """
     T, n = X.shape
-    M3 = np.empty((n, 0))
-    mu = np.mean(X, axis=0).reshape(n, 1)
-    x = X - np.repeat(mu.T, T, axis=0)
-    ones = np.ones((1, n))
+    x = X - X.mean(axis=0) # calculates centered (demeaned) returns
+    ones = np.ones((1, n)) # row of ones, length: number of assets in returns matrix
     W1 = np.kron(ones, x)
     W2 = np.kron(x, ones)
     M3 = (1/T) * x.T @ (W1 * W2)
     return M3
+
 
 def cokurtosis(X):
     T, n = X.shape
@@ -23,19 +31,3 @@ def cokurtosis(X):
     W3 = np.kron(ones, np.kron(ones, x))
     M4 = (1/T) * x.T @ (W1 * W2 * W3)
     return M4
-
-if __name__ == "__main__":
-    start = '2019-01-01'
-    end = '2023-12-30'
-    assets = ['APA', 'BA', 'BAX', 'BMY', 'CMCSA',
-          'CNP', 'CPB', 'DE', 'HPQ', 'JCI']
-    
-    prices = yf.download(assets, start=start, end=end, auto_adjust=False)
-    prices = prices.loc[:,('Adj Close', slice(None))]
-    prices.columns = assets
-    returns = prices[assets].pct_change().dropna()
-
-    R = returns.to_numpy()
-
-    M_3 = coskewness(R)
-    M_4 = cokurtosis(R)    
